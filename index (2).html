@@ -1,0 +1,370 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>HaZe Cam 2.0 - Retro Mirror</title>
+    <!-- Tailwind CSS para um design moderno e limpo -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Lucide Icons para ícones minimalistas -->
+    <script src="https://unpkg.com/lucide@latest"></script>
+    <style>
+        /* Estilos customizados para os seletores de roleta estilo analógico */
+        .no-scrollbar::-webkit-scrollbar { display: none; }
+        .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
+        
+        /* Efeito de vinheta e poeira na visualização */
+        .viewfinder-overlay {
+            pointer-events: none;
+            box-shadow: inset 0 0 80px rgba(0,0,0,0.6);
+        }
+        
+        /* Animação do Flash */
+        @keyframes flash-animation {
+            0% { opacity: 1; }
+            100% { opacity: 0; }
+        }
+        .flash-active {
+            animation: flash-animation 0.4s ease-out forwards;
+        }
+    </style>
+</head>
+<body class="bg-stone-950 text-stone-100 font-sans h-screen flex flex-col justify-between overflow-hidden select-none">
+
+    <!-- Efeito de Flash na Tela -->
+    <div id="flash" class="fixed inset-0 bg-white opacity-0 pointer-events-none z-50"></div>
+
+    <!-- Top Bar: Status e Configurações -->
+    <header class="p-4 flex justify-between items-center bg-stone-900/50 backdrop-blur-md border-b border-stone-800/40 z-10">
+        <div class="flex items-center gap-2">
+            <div class="w-2 h-2 rounded-full bg-amber-500 animate-pulse"></div>
+            <span class="text-xs font-mono tracking-widest text-stone-400 uppercase">HZE // ISO 400</span>
+        </div>
+        <div class="flex items-center gap-6">
+            <button id="btn-flash" class="text-stone-400 hover:text-amber-400 transition">
+                <i data-lucide="zap-off" class="w-5 h-5"></i>
+            </button>
+            <button id="btn-flip" class="text-stone-400 hover:text-stone-100 transition">
+                <i data-lucide="refresh-cw" class="w-5 h-5"></i>
+            </button>
+        </div>
+    </header>
+
+    <!-- Viewfinder / Visor da Câmera -->
+    <main class="flex-1 relative flex items-center justify-center bg-black overflow-hidden p-2 sm:p-4">
+        <div class="relative w-full max-w-md aspect-[3/4] bg-stone-900 rounded-2xl overflow-hidden shadow-2xl border border-stone-800">
+            
+            <!-- Elementos de Vídeo e Canvas -->
+            <video id="video" autoplay playsinline class="hidden"></video>
+            <canvas id="canvas" class="w-full h-full object-cover"></canvas>
+            
+            <!-- Overlays Estéticos (Vazamento de luz simulado, Vinheta e Linhas guia) -->
+            <div class="absolute inset-0 viewfinder-overlay"></div>
+            
+            <!-- Vazamento de Luz Estático Retro -->
+            <div id="light-leak" class="absolute inset-0 bg-gradient-to-tr from-orange-500/10 via-transparent to-red-600/10 mix-blend-screen pointer-events-none transition-all duration-500"></div>
+
+            <!-- Grid de Enquadramento (Opcional visual) -->
+            <div class="absolute inset-0 grid grid-cols-3 grid-rows-3 opacity-20 pointer-events-none">
+                <div class="border-b border-r border-stone-500"></div>
+                <div class="border-b border-r border-stone-500"></div>
+                <div class="border-b border-stone-500"></div>
+                <div class="border-b border-r border-stone-500"></div>
+                <div class="border-b border-r border-stone-500"></div>
+                <div class="border-b border-stone-500"></div>
+            </div>
+
+            <!-- Carimbo de Data Analógico (Estilo Clássico Cyber-shot/Y2K) -->
+            <div id="date-stamp" class="absolute bottom-4 right-4 font-mono text-sm tracking-wider text-orange-500/80 drop-shadow-[0_2px_2px_rgba(0,0,0,0.8)]">
+                05' 20 26
+            </div>
+            
+            <!-- Indicador de Carregamento / Permissão -->
+            <div id="loading-screen" class="absolute inset-0 bg-stone-950 flex flex-col items-center justify-center gap-3 transition-opacity duration-500">
+                <i data-lucide="camera" class="w-8 h-8 text-stone-600 animate-bounce"></i>
+                <p class="text-xs font-mono text-stone-500">Aguardando permissão da câmera...</p>
+            </div>
+        </div>
+    </main>
+
+    <!-- Bottom Controls: Filtros e Disparador -->
+    <footer class="bg-stone-900/90 border-t border-stone-800 p-6 flex flex-col gap-6 items-center z-10">
+        
+        <!-- Seleção de Filtros / Rolagem Horizontal Estilo Filme -->
+        <div class="w-full max-w-md">
+            <div id="filter-scroll" class="flex gap-4 overflow-x-auto py-2 px-4 no-scrollbar snap-x snap-mandatory justify-start sm:justify-center">
+                <!-- Os filtros serão gerados dinamicamente via JS -->
+            </div>
+        </div>
+
+        <!-- Painel Inferior: Galeria, Disparador e Grão -->
+        <div class="w-full max-w-md flex justify-between items-center px-6">
+            <!-- Miniatura da Galeria -->
+            <div id="gallery-preview" class="w-12 h-12 rounded-xl bg-stone-800 border border-stone-700 overflow-hidden flex items-center justify-center cursor-pointer transition active:scale-95">
+                <i data-lucide="image" class="w-5 h-5 text-stone-500"></i>
+            </div>
+
+            <!-- Botão de Disparo (Shutter) -->
+            <button id="btn-shutter" class="relative w-20 h-20 rounded-full bg-stone-100 flex items-center justify-center p-1 transition active:scale-90 focus:outline-none">
+                <div class="w-full h-full rounded-full border-4 border-stone-950 bg-stone-100 hover:bg-stone-200 transition-colors"></div>
+            </button>
+
+            <!-- Controle de Intensidade do Grão (Noise) -->
+            <button id="btn-grain" class="w-12 h-12 rounded-xl bg-stone-800 hover:bg-stone-700 transition flex flex-col items-center justify-center text-stone-400 active:scale-95">
+                <i data-lucide="sliders" class="w-5 h-5"></i>
+                <span class="text-[9px] font-mono mt-0.5" id="grain-label">GRÃO M</span>
+            </button>
+        </div>
+    </footer>
+
+    <!-- Script Principal do Aplicativo -->
+    <script>
+        // Inicializa os ícones do Lucide
+        lucide.createIcons();
+
+        // Configurações do App
+        const state = {
+            currentFilter: 'classic-chroma',
+            grainIntensity: 0.15, // 0 a 0.3
+            flashOn: false,
+            facingMode: 'user', // 'user' ou 'environment'
+            stream: null
+        };
+
+        // Definição dos Filtros Retro (Inspirados no HaZe Cam)
+        const FILTERS = [
+            { id: 'classic-chroma', name: 'HZE Chrome', desc: 'Cores quentes e nostálgicas', contrast: 1.1, saturation: 1.3, temperature: 15, tint: 5 },
+            { id: 'fuji-velvia', name: 'Velvia 80', desc: 'Saturação alta de verdes e azuis', contrast: 1.2, saturation: 1.5, temperature: -5, tint: -5 },
+            { id: 'monochrome-90', name: 'B&W Rough', desc: 'Preto e branco granulado de alto contraste', contrast: 1.4, saturation: 0, temperature: 0, tint: 0 },
+            { id: 'cyber-punk', name: 'Neon Fade', desc: 'Estilo cinematográfico futurista escuro', contrast: 1.0, saturation: 1.2, temperature: -15, tint: 20 },
+            { id: 'warm-amber', name: 'Amber 1994', desc: 'Efeito sepia suave e amarelado', contrast: 0.9, saturation: 0.9, temperature: 25, tint: 0 }
+        ];
+
+        // Mapeamento de Elementos DOM
+        const video = document.getElementById('video');
+        const canvas = document.getElementById('canvas');
+        const ctx = canvas.getContext('2d');
+        const filterScroll = document.getElementById('filter-scroll');
+        const loadingScreen = document.getElementById('loading-screen');
+        const btnShutter = document.getElementById('btn-shutter');
+        const btnFlip = document.getElementById('btn-flip');
+        const btnFlash = document.getElementById('btn-flash');
+        const btnGrain = document.getElementById('btn-grain');
+        const grainLabel = document.getElementById('grain-label');
+        const flashOverlay = document.getElementById('flash');
+        const galleryPreview = document.getElementById('gallery-preview');
+        const dateStamp = document.getElementById('date-stamp');
+
+        // Atualiza o carimbo de data com formato retro (Ano abreviado)
+        function updateDateStamp() {
+            const now = new Date();
+            const year = String(now.getFullYear()).slice(-2);
+            const month = String(now.getMonth() + 1).padStart(2, '0');
+            const day = String(now.getDate()).padStart(2, '0');
+            dateStamp.textContent = `${month}' ${day} ${year}`;
+        }
+        updateDateStamp();
+
+        // Renderiza os seletores de filtros na tela
+        function renderFilterSelectors() {
+            filterScroll.innerHTML = '';
+            FILTERS.forEach(filter => {
+                const isActive = filter.id === state.currentFilter;
+                const button = document.createElement('button');
+                button.className = `snap-center shrink-0 px-4 py-2 rounded-full text-xs font-mono tracking-wider transition-all duration-300 ${
+                    isActive 
+                    ? 'bg-amber-500 text-stone-950 font-bold scale-105 shadow-lg shadow-amber-500/20' 
+                    : 'bg-stone-800 text-stone-400 hover:bg-stone-700'
+                }`;
+                button.textContent = filter.name.toUpperCase();
+                button.addEventListener('click', () => {
+                    state.currentFilter = filter.id;
+                    renderFilterSelectors();
+                    applyLightLeakEffect(filter.id);
+                });
+                filterScroll.appendChild(button);
+            });
+        }
+        renderFilterSelectors();
+
+        // Muda sutilmente o gradiente de luz de acordo com o filtro escolhido
+        function applyLightLeakEffect(filterId) {
+            const leak = document.getElementById('light-leak');
+            if(filterId === 'cyber-punk') {
+                leak.className = "absolute inset-0 bg-gradient-to-bl from-cyan-500/15 via-transparent to-purple-600/15 mix-blend-screen pointer-events-none";
+            } else if (filterId === 'monochrome-90') {
+                leak.className = "absolute inset-0 bg-transparent pointer-events-none";
+            } else {
+                leak.className = "absolute inset-0 bg-gradient-to-tr from-orange-500/10 via-transparent to-red-600/10 mix-blend-screen pointer-events-none";
+            }
+        }
+
+        // Inicia o Stream da Câmera
+        async function initCamera() {
+            if (state.stream) {
+                state.stream.getTracks().forEach(track => track.stop());
+            }
+
+            const constraints = {
+                video: {
+                    facingMode: state.facingMode,
+                    width: { ideal: 1080 },
+                    height: { ideal: 1440 } // Proporção vertical ideal 3:4
+                },
+                audio: false
+            };
+
+            try {
+                state.stream = await navigator.mediaDevices.getUserMedia(constraints);
+                video.srcObject = state.stream;
+                
+                // Aguarda os metadados carregarem para ajustar as dimensões do Canvas
+                video.onloadedmetadata = () => {
+                    canvas.width = video.videoWidth;
+                    canvas.height = video.videoHeight;
+                    loadingScreen.classList.add('opacity-0', 'pointer-events-none');
+                    requestAnimationFrame(processFrame);
+                };
+            } catch (err) {
+                console.error("Erro ao acessar a câmera: ", err);
+                alert("Não foi possível acessar a câmera. Verifique as permissões do seu navegador.");
+            }
+        }
+
+        // Processamento de Imagem em Tempo Real (Core do Filtro Analógico)
+        function processFrame() {
+            if (video.paused || video.ended) return;
+
+            // Desenha o frame original no Canvas
+            ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+
+            // Coleta e modifica os pixels para aplicar os filtros vintage
+            const imgData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+            const data = imgData.data;
+            const current = FILTERS.find(f => f.id === state.currentFilter);
+
+            // Fatores de ajuste do filtro
+            const contrastFactor = (259 * (current.contrast * 255 + 255)) / (255 * (259 - current.contrast * 255));
+
+            for (let i = 0; i < data.length; i += 4) {
+                let r = data[i];
+                let g = data[i+1];
+                let b = data[i+2];
+
+                // 1. Aplicação de Contraste
+                r = contrastFactor * (r - 128) + 128;
+                g = contrastFactor * (g - 128) + 128;
+                b = contrastFactor * (b - 128) + 128;
+
+                // 2. Balanço de Cores / Temperatura (Estilo Filme Antigo)
+                r += current.temperature;
+                g += current.tint;
+                b -= current.temperature;
+
+                // 3. Controle de Saturação
+                if (current.saturation !== 1) {
+                    const gray = 0.299 * r + 0.587 * g + 0.114 * b;
+                    r = gray + current.saturation * (r - gray);
+                    g = gray + current.saturation * (g - gray);
+                    b = gray + current.saturation * (b - gray);
+                }
+
+                // 4. Injeção de Grão Analógico Dinâmico (Noise)
+                if (state.grainIntensity > 0) {
+                    const noise = (Math.random() - 0.5) * (state.grainIntensity * 255);
+                    r += noise;
+                    g += noise;
+                    b += noise;
+                }
+
+                // Proteção para não estourar os limites de cor do byte (0-255)
+                data[i] = Math.min(255, Math.max(0, r));
+                data[i+1] = Math.min(255, Math.max(0, g));
+                data[i+2] = Math.min(255, Math.max(0, b));
+            }
+
+            // Devolve os pixels modificados ao canvas
+            ctx.putImageData(imgData, 0, 0);
+
+            // Loop contínuo
+            requestAnimationFrame(processFrame);
+        }
+
+        // Alternar entre Câmera Frontal e Traseira
+        btnFlip.addEventListener('click', () => {
+            state.facingMode = state.facingMode === 'user' ? 'environment' : 'user';
+            loadingScreen.classList.remove('opacity-0', 'pointer-events-none');
+            initCamera();
+        });
+
+        // Controle de Intensidade do Grão Analógico
+        btnGrain.addEventListener('click', () => {
+            if (state.grainIntensity === 0) {
+                state.grainIntensity = 0.10;
+                grainLabel.textContent = "GRÃO B";
+            } else if (state.grainIntensity === 0.10) {
+                state.grainIntensity = 0.22;
+                grainLabel.textContent = "GRÃO M";
+            } else {
+                state.grainIntensity = 0;
+                grainLabel.textContent = "SEM GRÃO";
+            }
+        });
+
+        // Alternar Estado do Flash Simulado
+        btnFlash.addEventListener('click', () => {
+            state.flashOn = !state.flashOn;
+            btnFlash.innerHTML = state.flashOn 
+                ? `<i data-lucide="zap" class="w-5 h-5 text-amber-400"></i>` 
+                : `<i data-lucide="zap-off" class="w-5 h-5 text-stone-400"></i>`;
+            lucide.createIcons();
+        });
+
+        // Ação de Tirar Foto (Shutter)
+        btnShutter.addEventListener('click', () => {
+            // Executa Flash Visual se ativado
+            if (state.flashOn) {
+                flashOverlay.className = "fixed inset-0 bg-white opacity-100 z-50 flash-active";
+                setTimeout(() => {
+                    flashOverlay.className = "fixed inset-0 bg-white opacity-0 pointer-events-none z-50";
+                }, 400);
+            }
+
+            // Pequeno feedback tátil/visual no botão
+            btnShutter.classList.add('scale-95');
+            setTimeout(() => btnShutter.classList.remove('scale-95'), 100);
+
+            // Captura o estado atual do Canvas e mescla o carimbo de data físico antes de salvar
+            const captureCanvas = document.createElement('canvas');
+            captureCanvas.width = canvas.width;
+            captureCanvas.height = canvas.height;
+            const captureCtx = captureCanvas.getContext('2d');
+            
+            // Desenha a foto atual
+            captureCtx.drawImage(canvas, 0, 0);
+            
+            // Desenha o Carimbo de Data fixo na imagem final gerada
+            captureCtx.font = `bold ${canvas.width * 0.035}px monospace`;
+            captureCtx.fillStyle = "rgba(249, 115, 22, 0.85)";
+            captureCtx.shadowColor = "black";
+            captureCtx.shadowBlur = 4;
+            const text = dateStamp.textContent.trim();
+            captureCtx.fillText(text, captureCanvas.width - (canvas.width * 0.25), captureCanvas.height - (canvas.height * 0.04));
+
+            const dataUrl = captureCanvas.toDataURL('image/jpeg');
+
+            // Atualiza o preview da galeria inferior
+            galleryPreview.innerHTML = `<img src="${dataUrl}" class="w-full h-full object-cover rounded-xl" />`;
+
+            // Aciona o download automático da foto tratada estilo HaZe Cam
+            const link = document.createElement('a');
+            link.download = `HAZE_${Date.now()}.jpg`;
+            link.href = dataUrl;
+            link.click();
+        });
+
+        // Inicializa o App
+        window.addEventListener('DOMContentLoaded', initCamera);
+    </script>
+</body>
+</html>
